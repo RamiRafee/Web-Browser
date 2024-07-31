@@ -10,7 +10,10 @@ def load(url):
         url (URL): The URL object to load content from.
     """
     body = url.request()
-    show(body)
+    if url.view_source:
+        print(body)  # Print the raw HTML source
+    else:
+        show(body)
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:

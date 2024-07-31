@@ -12,6 +12,10 @@ class URL:
         Args:
             url (str): The URL string to parse.
         """
+        self.view_source = False
+        if url.startswith("view-source:"):
+            self.view_source = True
+            url = url[len("view-source:"):]
         if url.startswith("data:"):
             # Handle data URLs separately
             self.scheme = "data"
@@ -48,9 +52,19 @@ class URL:
         Returns:
             str: The content of the response.
         """
+        content = ""
         if self.scheme == "file":
-            return handle_file_url(self.path)
+            content =  handle_file_url(self.path)
         elif self.scheme == "data":
-            return handle_data_url(self.data)
+            content =  handle_data_url(self.data)
         else:
-            return make_http_request(self.host, self.port, self.path, self.scheme)
+            content  = make_http_request(self.host, self.port, self.path, self.scheme)
+        if self.view_source:
+            return content
+        else: 
+            return self.render_content(content)
+
+    def render_content(self, content):
+        # This method would normally render the HTML content
+        # For now, we'll just return the content as is
+        return content

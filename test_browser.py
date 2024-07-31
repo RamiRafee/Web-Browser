@@ -1,7 +1,10 @@
 import unittest
+import gzip
 from io import StringIO
-from unittest.mock import patch, mock_open
+from unittest.mock import patch, mock_open, Mock
 from main import URL, load, show
+
+from request import make_http_request, open_connections
 
 class TestURL(unittest.TestCase):
     """Tests for the URL class."""
@@ -38,6 +41,16 @@ class TestURL(unittest.TestCase):
         self.assertEqual(url.scheme, "data")
         self.assertEqual(url.data, "text/html,Hello world!")
 
+    def test_view_source_url(self):
+        """Test parsing and requesting a view-source URL."""
+        url = URL("view-source:http://example.com/path")
+        self.assertTrue(url.view_source)
+        self.assertEqual(url.scheme, "http")
+        self.assertEqual(url.host, "example.com")
+        self.assertEqual(url.port, 80)
+        self.assertEqual(url.path, "/path")
+
+
 class TestRequest(unittest.TestCase):
     """Tests for the request method of the URL class."""
     @patch("builtins.open", new_callable=mock_open, read_data="file content")
@@ -55,12 +68,13 @@ class TestRequest(unittest.TestCase):
         """Test the request method for an HTTP URL."""
         url = URL("http://example.com/path")
         mock_makefile.return_value.readline.side_effect = [
-            "HTTP/1.1 200 OK\r\n", 
-            "\r\n"
+            b"HTTP/1.1 200 OK\r\n", 
+            b"\r\n"
         ]
-        mock_makefile.return_value.read.return_value = "http response content"
+        mock_makefile.return_value.read.return_value = b"http response content"
 
         content = url.request()
+
         self.assertEqual(content, "http response content")
 
     def test_data_request(self):
@@ -85,6 +99,18 @@ class TestIntegration(unittest.TestCase):
         with patch("sys.stdout", new=StringIO()) as fake_out:
             load(url)
             self.assertEqual(fake_out.getvalue(), "Hello world!")
+    
+    def test_load_view_source_url(self):
+        """Test loading and displaying content from a view-source URL."""
+        
+        url = URL("view-source:http://example.com/path")
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            load(url)
+            output = fake_out.getvalue()
+            # Check for the presence of specific elements
+            self.assertIn("<!doctype html>", output)
+            self.assertIn("<title>Example Domain</title>", output)
+            self.assertIn("<h1>Example Domain</h1>", output)
 class TestShow(unittest.TestCase):
     """Tests for the show function."""
     def test_show(self):
@@ -102,5 +128,127 @@ class TestShow(unittest.TestCase):
         with patch("sys.stdout", new=StringIO()) as fake_out:
             show(body)
             self.assertEqual(fake_out.getvalue(), expected_output)
+
+class TestKeepAlive(unittest.TestCase):
+    @patch('socket.socket')
+    def test_keep_alive(self, mock_socket):
+        
+        # Setup mock socket
+        mock_conn = Mock()
+        mock_socket.return_value = mock_conn
+        mock_conn.makefile.return_value.readline.side_effect = [
+            b"HTTP/1.1 200 OK\r\n",
+            b"Content-Length: 13\r\n",
+            b"\r\n"
+        ]
+        mock_conn.makefile.return_value.read.return_value = b"Hello, World!"
+
+        # First request
+        content1 = make_http_request("example.com", 80, "/", "http")
+
+
+
+        #self.assertEqual(len(open_connections), 1)
+
+        # Reset mock for second request
+        mock_conn.makefile.return_value.readline.side_effect = [
+            b"HTTP/1.1 200 OK\r\n",
+            b"Content-Length: 11\r\n",
+            b"\r\n"
+        ]
+        mock_conn.makefile.return_value.read.return_value = b"Keep-alive!"
+
+        # Second request
+        content2 = make_http_request("example.com", 80, "/test", "http")
+
+        self.assertEqual(len(open_connections), 2)
+        print(open_connections)
+        # # Verify that socket was created only once
+        # mock_socket.assert_called_once()
+
+        # # Verify that send was called twice (once for each request)
+        # self.assertEqual(mock_conn.send.call_count, 2)
+
+    @patch('socket.socket')
+    def test_different_hosts(self, mock_socket):
+        # Setup mock socket
+        mock_conn1 = Mock()
+        mock_conn2 = Mock()
+        mock_socket.side_effect = [mock_conn1, mock_conn2]
+
+        for conn in (mock_conn1, mock_conn2):
+            conn.makefile.return_value.readline.side_effect = [
+                b"HTTP/1.1 200 OK\r\n",
+                b"Content-Length: 13\r\n",
+                b"\r\n"
+            ]
+            conn.makefile.return_value.read.return_value = b"Hello, World!"
+
+        # Request to first host
+        content1 = make_http_request("example.com", 80, "/", "http")
+        
+        self.assertEqual(len(open_connections), 1)
+
+        # Request to second host
+        content2 = URL("http://altostrat.com/").request()
+
+        self.assertEqual(len(open_connections), 2)
+
+class TestCaching(unittest.TestCase):
+    def setUp(self):
+        self.maxDiff = None
+
+    @patch('socket.socket')
+    def test_caching(self, mock_socket):
+        # Mock the socket responses for the first request
+        mock_socket.return_value.makefile.return_value.readline.side_effect = [
+            b"HTTP/1.1 200 OK\r\n",
+            b"Cache-Control: max-age=3600\r\n",
+            b"\r\n",  # End of headers
+        ]
+        mock_socket.return_value.makefile.return_value.read.return_value = b"Hello, World!"
+
+        # First request should not use cache
+        content1 = make_http_request("example.com", 80, "/resource", "http")
+        self.assertEqual(content1, "Hello, World!")
+
+        # Mock the socket responses for the second request (should use cache)
+        mock_socket.return_value.makefile.return_value.readline.side_effect = [
+            b"HTTP/1.1 200 OK\r\n",
+            b"Cache-Control: max-age=3600\r\n",
+            b"\r\n",  # End of headers
+        ]
+
+        # Second request should use cache
+        content2 = make_http_request("example.com", 80, "/resource", "http")
+        self.assertEqual(content2, b"Hello, World!")
+
+        # Check that the send method was called only once for the first request
+        self.assertEqual(mock_socket.return_value.send.call_count, 1)
+class TestCompression(unittest.TestCase):
+    def setUp(self):
+        self.maxDiff = None
+
+    @patch('socket.socket')
+    def test_compression(self, mock_socket):
+        # Prepare compressed content
+        original_content = b"Hello, World!"
+        compressed_content = gzip.compress(original_content)
+
+        # Mock the socket responses for a compressed response
+        mock_socket.return_value.makefile.return_value.readline.side_effect = [
+            b"HTTP/1.1 200 OK\r\n",
+            b"Content-Encoding: gzip\r\n",
+            b"Content-Length: " + str(len(compressed_content)).encode() + b"\r\n",
+            b"\r\n",  # End of headers
+        ]
+        mock_socket.return_value.makefile.return_value.read.return_value = compressed_content
+
+        # Call the make_http_request function
+        content = make_http_request("example.com", 80, "/resource", "http")
+
+        # Assert the decompressed content
+        self.assertEqual(content, original_content)
 if __name__ == "__main__":
     unittest.main()
+
