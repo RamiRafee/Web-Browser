@@ -1,4 +1,4 @@
-def show(body):
+def lex(body):
     """
     Display the body content by filtering out HTML tags and replacing entities.
     
@@ -6,6 +6,7 @@ def show(body):
         body (str): The body content to display.
     """
     in_tag = False
+    text=""
     entity_buffer = ""
     for c in body:
         if c == "<":
@@ -18,17 +19,22 @@ def show(body):
             elif entity_buffer:
                 entity_buffer += c
                 if entity_buffer == "&lt;":
-                    print("<", end="")
+                    text+="<"
+                    # print("<", end="")
                     entity_buffer = ""
                 elif entity_buffer == "&gt;":
-                    print(">", end="")
+                    text+=">"
+                    # print(">", end="")
                     entity_buffer = ""
                 elif entity_buffer[-1] == ";":
                     # If we encounter an unknown entity, print it as is
-                    print(entity_buffer, end="")
+                    text+=entity_buffer
+                    # print(entity_buffer, end="")
                     entity_buffer = ""
             else:
-                print(c, end="")
+                text+= str(c)
+                # print(c, end="")
         else:
             # Print the contents inside tags as is
             entity_buffer = ""
+    return text
