@@ -100,7 +100,7 @@ class Browser:
         self.window.bind("<MouseWheel>", self.on_mousewheel)
         self.window.bind("<Button-4>", self.on_mousewheel_linux)
         self.window.bind("<Button-5>", self.on_mousewheel_linux)
-
+        self.window.iconbitmap("Assets\window_icon.ico")
         # self.load_emoji_images()
         self.emoji_mapping = self.create_emoji_mapping()
     def scroll_canvas(self, *args):
@@ -115,8 +115,10 @@ class Browser:
         self.update_scroll()
     def update_scroll(self):
         # Calculate maximum scroll based on the height of the document
-        self.max_scroll = max(0, max(y for _, y, _ in self.display_list) - self.canvas.winfo_height())
-        
+        try:
+            self.max_scroll = max(1, max(y for _, y, _ in self.display_list) - self.canvas.winfo_height())
+        except ValueError:
+            self.max_scroll = 1
         # Ensure we do not scroll past the last entry
         self.scroll = min(self.scroll, self.max_scroll)
         self.canvas.yview_moveto(self.scroll / self.max_scroll)
@@ -142,7 +144,10 @@ class Browser:
         """
         # self.canvas.config(width=event.width - 20, height=event.height - 100)
         self.display_list = layout(self.text, event.width - 20, event.height - 100 , self.emoji_mapping)
-        self.max_scroll = max(0, max(y for _, y, _ in self.display_list) - self.canvas.winfo_height())
+        # try:
+        #     self.max_scroll = max(0, max(y for _, y, _ in self.display_list) - self.canvas.winfo_height())
+        # except ValueError:
+        #     self.max_scroll = 1
         self.update_scroll()
     def draw(self):
         self.canvas.delete("all")
@@ -179,17 +184,25 @@ class Browser:
         Args:
             url (URL): The URL object to load content from.
         """
-        self.url_entry.delete(0, tkinter.END)
-        self.url_entry.insert(0, url.scheme +"://" + url.host +  url.path)
-        self.body = url.request()
-        if url.view_source:
-            print(self.body)  # Print the raw HTML source
-        else:
-            self.text = lex(self.body)
-        self.text = ":1F600:" + self.text
-        self.text = ":1F600:" + self.text
-        self.display_list = layout(self.text, self.window.winfo_width(), self.window.winfo_height(), self.emoji_mapping)
-        self.update_scroll()
+        try:
+            self.url_entry.delete(0, tkinter.END)
+            self.url_entry.insert(0, url.scheme +"://" + url.host +  url.path)
+            self.body = url.request()
+            if url.view_source:
+                print(self.body)  # Print the raw HTML source
+            else:
+                self.text = lex(self.body)
+            
+            self.display_list = layout(self.text, self.window.winfo_width(), self.window.winfo_height(), self.emoji_mapping)
+            
+        except Exception as e:
+            # Log the exception (optional)
+            print(f"Error loading URL: {e}")
+            # Fallback to about:blank
+            self.url_entry.insert(0, "about:blank")
+            self.text = ""
+            self.display_list = layout(self.text, self.canvas.winfo_width(), self.canvas.winfo_height(), self.emoji_mapping) 
+        self.update_scroll()       
     def load_emoji_images(self):
         """
         Load all emoji images from the 'emojis' directory into a dictionary.

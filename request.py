@@ -65,6 +65,7 @@ def make_http_request(host, port, path, scheme,max_redirects=5):
         
         header, value = line.split(b":", 1)
         response_headers[header.lower().decode('utf-8')] = value.strip().decode('utf-8')
+    # print(response_headers)
     if "location" in response_headers and max_redirects > 0:
         redirect_url = response_headers["location"]
         # Handle absolute and relative URLs
