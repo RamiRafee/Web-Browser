@@ -2,28 +2,31 @@ import sys
 from url import URL
 from utils import lex
 import tkinter
+import argparse
 WIDTH, HEIGHT = 800, 600
 HSTEP, VSTEP = 13, 18
 SCROLL_STEP = 100
-def layout(text, WIDTH, HEIGHT,emoji_mapping = {}):
+def layout(text, WIDTH, HEIGHT,emoji_mapping = {} , direction="ltr"):
     """
-    Arrange the text into a list of positions and characters,
-    handling newline characters to create paragraph breaks.
+    Layout the text for rendering.
     
     Args:
-        text (str): The text to layout.
-    
+        text (str): The text to be laid out.
+        width (int): The width of the canvas.
+        height (int): The height of the canvas.
+        emoji_images (dict): A dictionary mapping emoji characters to their images.
+        direction (str): The text direction ("ltr" or "rtl").
+
     Returns:
-        list: A list of tuples (x, y, character) representing 
-              each character's position.
+        list: A list of tuples representing the display list.
     """
     display_list = []
     cursor_x, cursor_y = HSTEP, VSTEP + 50
-
+    
     cursor_x, cursor_y = HSTEP, VSTEP
     buffer = ""
     in_code = False
-
+    line = []
     for c in text:
         if c == ":":
             if in_code:
@@ -34,7 +37,11 @@ def layout(text, WIDTH, HEIGHT,emoji_mapping = {}):
                 in_code = False
                 if code in emoji_mapping:
                     cursor_x+= 31
-                    display_list.append((cursor_x, cursor_y, emoji_mapping[code]))
+                    image = emoji_mapping[c]
+                    if direction == "rtl":
+                        line.append((cursor_x, cursor_y, image))
+                    else:
+                        line.append((cursor_x, cursor_y, image))
                     cursor_x += 31  # Adjust for emoji size
                 # else:
                 #     display_list.append((cursor_x, cursor_y, ":" + code + ":"))
@@ -45,23 +52,36 @@ def layout(text, WIDTH, HEIGHT,emoji_mapping = {}):
             buffer += c
 
         elif c == '\n':
-            cursor_y += VSTEP * 2  # Increment by more than VSTEP for paragraph breaks
+            if direction == "rtl":
+                display_list.extend([(x, y, char) for x, y, char in line])
+            else:
+                display_list.extend(line)
+            cursor_y += VSTEP * 1.5  # Paragraph break
             cursor_x = HSTEP
-        elif c in emoji_mapping:
-            display_list.append((cursor_x, cursor_y, emoji_mapping[c]))
-            cursor_x += 16  # Adjust for emoji size
+            line = []
+        # elif c in emoji_mapping:
+        #     display_list.append((cursor_x, cursor_y, emoji_mapping[c]))
+        #     cursor_x += 16  # Adjust for emoji size
         else:
-            display_list.append((cursor_x, cursor_y, c))
+            if direction == "rtl":
+                line.append((WIDTH - cursor_x, cursor_y, c))
+            else:
+                line.append((cursor_x, cursor_y, c))
             cursor_x += HSTEP
             if cursor_x >= WIDTH - HSTEP:
                 cursor_y += VSTEP
                 cursor_x = HSTEP
+    if direction == "rtl":
+        display_list.extend([(x, y, char) for x, y, char in line])
+    else:
+        display_list.extend(line)
     
     return display_list
 class Browser:
-    def __init__(self):
+    def __init__(self, direction="ltr"):
         
         
+        self.direction = direction
         
         self.window = tkinter.Tk()
         self.window.title("Creator Browser")
@@ -120,7 +140,7 @@ class Browser:
         except ValueError:
             self.max_scroll = 1
         # Ensure we do not scroll past the last entry
-        self.scroll = min(self.scroll, self.max_scroll)
+        self.scroll = min(self.scroll, self.max_scroll + 100)
         self.canvas.yview_moveto(self.scroll / self.max_scroll)
         self.draw()
     def on_mousewheel(self, event):
@@ -143,7 +163,7 @@ class Browser:
             event: The event object containing the new width and height.
         """
         # self.canvas.config(width=event.width - 20, height=event.height - 100)
-        self.display_list = layout(self.text, event.width - 20, event.height - 100 , self.emoji_mapping)
+        self.display_list = layout(self.text, event.width - 20, event.height - 100 , self.emoji_mapping, self.direction)
         # try:
         #     self.max_scroll = max(0, max(y for _, y, _ in self.display_list) - self.canvas.winfo_height())
         # except ValueError:
@@ -184,8 +204,15 @@ class Browser:
         Args:
             url (URL): The URL object to load content from.
         """
+        
         try:
             self.url_entry.delete(0, tkinter.END)
+            # Handle different URL schemes
+            
+            if url.scheme == "data":
+
+                url.host = ""
+                url.path = ""
             self.url_entry.insert(0, url.scheme +"://" + url.host +  url.path)
             self.body = url.request()
             if url.view_source:
@@ -193,7 +220,7 @@ class Browser:
             else:
                 self.text = lex(self.body)
             
-            self.display_list = layout(self.text, self.window.winfo_width(), self.window.winfo_height(), self.emoji_mapping)
+            self.display_list = layout(self.text, self.window.winfo_width(), self.window.winfo_height(), self.emoji_mapping , self.direction)
             
         except Exception as e:
             # Log the exception (optional)
@@ -201,7 +228,7 @@ class Browser:
             # Fallback to about:blank
             self.url_entry.insert(0, "about:blank")
             self.text = ""
-            self.display_list = layout(self.text, self.canvas.winfo_width(), self.canvas.winfo_height(), self.emoji_mapping) 
+            self.display_list = layout(self.text, self.canvas.winfo_width(), self.canvas.winfo_height(), self.emoji_mapping , self.direction) 
         self.update_scroll()       
     def load_emoji_images(self):
         """
@@ -224,11 +251,15 @@ class Browser:
             # other emojis as needed
         }
 if __name__ == "__main__":
+    direction = "ltr"
+    url = "about:blank"
     if len(sys.argv) > 1:
-        Browser().load(URL(sys.argv[1]))
-        tkinter.mainloop()
-    else:
-        # Default file path for quick testing
+        if "--rtl" in sys.argv:
+            direction = "rtl"
+            sys.argv.remove("--rtl")
+        if len(sys.argv) > 1:
+            url = sys.argv[1]
+    browser = Browser(direction=direction)
+    browser.load(URL(url))
+    tkinter.mainloop()
 
-        Browser().load(URL(""))
-        tkinter.mainloop()
